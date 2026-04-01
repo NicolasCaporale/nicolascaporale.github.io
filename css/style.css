@@ -825,3 +825,93 @@ body {
 }
 .scanner-status.found { color: var(--green-safe); }
 .scanner-status.error { color: var(--red-expiry); }
+
+/* ══════════════════════════════════════════
+   AI SAFETY BLOCK — da aggiungere in fondo a style.css
+   ══════════════════════════════════════════ */
+
+.ai-safety-block {
+  margin-top: 10px;
+  background: rgba(255,255,255,0.55);
+  border-radius: 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--green-mid);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-safety-block.ai-loading {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  border-left-color: var(--green-mid);
+}
+
+.ai-safety-block.ai-error {
+  border-left-color: #e67e22;
+  font-family: 'Fredoka One', cursive;
+  font-size: 13px;
+  color: #e67e22;
+}
+
+.ai-safety-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: 'Fredoka One', cursive;
+  font-size: 13px;
+  color: var(--text-dark);
+}
+
+.ai-risk-badge {
+  font-family: 'Fredoka One', cursive;
+  font-size: 11px;
+  color: #fff;
+  padding: 3px 9px;
+  border-radius: 50px;
+}
+
+.ai-safety-safe {
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.ai-safety-safe strong {
+  color: var(--green-dark);
+}
+
+.ai-safety-tips {
+  font-family: 'Nunito', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-mid);
+  line-height: 1.5;
+}
+
+.ai-disclaimer {
+  font-family: 'Nunito', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(13,51,32,0.55);
+  line-height: 1.4;
+  border-top: 1px solid rgba(13,51,32,0.1);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+/* spinner rotante */
+.ai-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(45,106,79,0.25);
+  border-top-color: var(--green-btn);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
