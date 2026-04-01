@@ -41,6 +41,10 @@ function goTo(screenId) {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
+    // NUOVO: rimuovi preview residuo ogni volta che si entra in screen-manual
+    const old = document.getElementById('scan-product-preview');
+    if (old) old.remove();
+    pendingProductImage = null;  // resetta anche l'immagine pendente
   }
 }
 
@@ -247,84 +251,61 @@ function isExpiringSoon(s) {
 }
 
 /* ──────────────────────────────────────────
-   FOODKEEPER — shelf life lookup (USDA, free)
+   AI
    ────────────────────────────────────────── */
-let foodkeeperData = null;
 
-async function loadFoodKeeper() {
-  if (foodkeeperData) return foodkeeperData;
-  try {
-    const res  = await fetch('https://www.fsis.usda.gov/shared/data/EN/foodkeeper.json');
-    foodkeeperData = await res.json();
-  } catch(_) {
-    foodkeeperData = null;
-  }
-  return foodkeeperData;
-}
+async function getAISafety(productName, imageUrl) {
+  const contentParts = [];
 
-function normalizeName(s) {
-  return (s || '').toLowerCase()
-    .replace(/[àáâã]/g, 'a').replace(/[èéê]/g, 'e')
-    .replace(/[ìíî]/g,  'i').replace(/[òóô]/g, 'o')
-    .replace(/[ùúû]/g,  'u')
-    .replace(/[^a-z0-9 ]/g, ' ').trim();
-}
-
-async function getFoodKeeperSafety(productName) {
-  const db = await loadFoodKeeper();
-  if (!db || !db.sheets) return null;
-
-  const products = db.sheets.find(s => s.name === 'Products')?.data || [];
-  const query    = normalizeName(productName);
-  const words    = query.split(' ').filter(w => w.length > 2);
-
-  // cerca per keyword match — più parole coincidono = match migliore
-  let best = null, bestScore = 0;
-  for (const row of products) {
-    const rowName  = normalizeName(row.Name     || '');
-    const kw       = normalizeName(row.Keywords || '');
-    const haystack = rowName + ' ' + kw;
-    const score    = words.filter(w => haystack.includes(w)).length;
-    if (score > bestScore) { bestScore = score; best = row; }
+  if (imageUrl) {
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise((res, rej) => {
+        img.onload = res; img.onerror = rej;
+        img.src = imageUrl;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      const b64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+      contentParts.push({
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: b64 }
+      });
+    } catch (_) {}
   }
 
-  if (!best || bestScore === 0) return null;
-
-  const toNum = v => parseInt(v) || 0;
-  let extraDays = 0;
-  let storage   = '';
-
-  // prima scelta: dispensa (pantry)
-  const pantryMax = toNum(best.Pantry_Max);
-  const pantryMin = toNum(best.Pantry_Min);
-  const pantryMet = (best.Pantry_Metric || '').toLowerCase();
-
-  if (pantryMax > 0) {
-    const mult = pantryMet.includes('month') ? 30
-               : pantryMet.includes('year')  ? 365
-               : 1;
-    extraDays = Math.round(((pantryMin + pantryMax) / 2) * mult);
-    storage   = 'dispensa';
-  } else {
-    // fallback: frigo
-    const refMax = toNum(best.Refrigerate_After_Opening_Max || best.Refrigerate_Max);
-    const refMin = toNum(best.Refrigerate_After_Opening_Min || best.Refrigerate_Min);
-    const refMet = (best.Refrigerate_After_Opening_Metric  || best.Refrigerate_Metric || '').toLowerCase();
-    const mult   = refMet.includes('month') ? 30
-                 : refMet.includes('year')  ? 365
-                 : 1;
-    extraDays = Math.round(((refMin + refMax) / 2) * mult);
-    storage   = 'frigo';
-  }
-
-  if (extraDays <= 0) return null;
-
-  const risk = storage === 'frigo' ? 'medium' : 'low';
-  const tips = best.Tips || '';
-
-  return { extraDays, storage, risk, matchedName: best.Name, tips };
+  contentParts.push({
+    type: 'text',
+    text: `Sei un esperto di sicurezza alimentare. Il prodotto è: "${productName}".
+Rispondi SOLO con un oggetto JSON (nessun testo extra, nessun markdown) con questa struttura:
+{
+  "extraDays": <numero intero di giorni consumabile oltre la data "preferibilmente entro">,
+  "storage": <"dispensa" | "frigo" | "freezer">,
+  "risk": <"low" | "medium" | "high">,
+  "tips": "<max 1 frase su come capire se è ancora buono>",
+  "matchedName": "<nome prodotto riconosciuto>"
 }
+Se non riesci a stimare, usa extraDays: 0.`
+  });
 
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 300,
+      messages: [{ role: 'user', content: contentParts }]
+    })
+  });
+
+  const data   = await response.json();
+  const raw    = (data.content?.[0]?.text || '').replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(raw);
+  if (!parsed || parsed.extraDays <= 0) return null;
+  return parsed;
+}
 /* ──────────────────────────────────────────
    SHELF
    ────────────────────────────────────────── */
@@ -385,7 +366,6 @@ async function openDetail(id) {
   const label = p.type === 'preferibilmente' ? 'Preferibilmente entro:' : 'Da consumarsi entro:';
   const exp   = isExpiringSoon(p.date);
 
-  // blocco conservazione — solo per "preferibilmente"
   let safetyBlock = '';
   if (p.type === 'preferibilmente') {
     if (p.aiSafety) {
@@ -394,7 +374,7 @@ async function openDetail(id) {
       safetyBlock = `
         <div id="ai-safety-block" class="ai-safety-block ai-loading">
           <span class="ai-spinner"></span>
-          <span style="font-size:13px;color:var(--text-mid);">Ricerca dati conservazione…</span>
+          <span style="font-size:13px;color:var(--text-mid);">Analisi AI in corso…</span>
         </div>`;
     }
   }
@@ -407,9 +387,8 @@ async function openDetail(id) {
 
   goTo('screen-detail');
 
-  // carica FoodKeeper e aggiorna il blocco se necessario
   if (p.type === 'preferibilmente' && !p.aiSafety) {
-    const result = await getFoodKeeperSafety(p.name);
+    const result = await getAISafety(p.name, p.imageUrl);
     const block  = document.getElementById('ai-safety-block');
 
     if (result) {
@@ -418,13 +397,12 @@ async function openDetail(id) {
       if (idx > -1) { products[idx].aiSafety = result; saveProducts(products); }
       if (block) block.outerHTML = buildSafetyBlock(result, p.date);
     } else {
-      if (block) block.outerHTML = `<div class="ai-safety-block ai-error">⚠️ Dati non disponibili per questo prodotto</div>`;
+      if (block) block.outerHTML = `<div class="ai-safety-block ai-error">⚠️ Analisi non disponibile per questo prodotto</div>`;
     }
   }
 }
 
 function buildSafetyBlock(safety, expiryDate) {
-  // calcola safeUntil = data scadenza + extraDays
   let safeUntil = '—';
   if (expiryDate && safety.extraDays) {
     const base = parseDate(expiryDate);
@@ -440,14 +418,12 @@ function buildSafetyBlock(safety, expiryDate) {
   const color     = riskColor[safety.risk] || '#2d8653';
   const label     = riskLabel[safety.risk] || '';
   const emoji     = riskEmoji[safety.risk] || '📋';
-  const src       = safety.matchedName
-    ? `USDA FoodKeeper (${safety.matchedName})`
-    : 'USDA FoodKeeper';
+  const src       = safety.matchedName ? `AI · ${safety.matchedName}` : 'Stima AI';
 
   return `
     <div class="ai-safety-block" style="border-left:3px solid ${color};">
       <div class="ai-safety-header">
-        <span style="font-size:14px;">📋 Conservazione stimata</span>
+        <span style="font-size:14px;">🤖 Analisi AI</span>
         <span class="ai-risk-badge" style="background:${color};">${emoji} ${label}</span>
       </div>
       <div class="ai-safety-safe">
@@ -565,6 +541,13 @@ function showToast(msg) {
   t._t = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
+document.getElementById('qr-date').addEventListener('input', function () {
+  let v = this.value.replace(/\D/g, '');
+  if (v.length > 2) v = v.slice(0, 2) + '/' + v.slice(2);
+  if (v.length > 5) v = v.slice(0, 5) + '/' + v.slice(5);
+  this.value = v.slice(0, 8);
+});
+
 /* ──────────────────────────────────────────
    DATE AUTO-FORMAT
    ────────────────────────────────────────── */
@@ -621,13 +604,17 @@ function openScanner() {
       html5QrCode.start(
         { facingMode: 'environment' },
         {
-          fps: 10,
-          qrbox: { width: 260, height: 120 },
-          videoConstraints: {
-            facingMode:   'environment',
-            focusMode:    'manual',
-            exposureMode: 'manual',
-          },
+          fps: 15,
+          qrbox: { width: 280, height: 100 },
+          aspectRatio: 1.7,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+          ],
         },
         onBarcodeDetected,
         () => {}
@@ -680,21 +667,26 @@ async function onBarcodeDetected(barcode) {
     let imageUrl = null;
 
     if (data.status === 1 && data.product) {
-      const p  = data.product;
-      name     = p.product_name_it || p.product_name || p.generic_name || '';
+      const p     = data.product;
+      const brand = (p.brands || '').split(',')[0].trim();
+      const pname = p.product_name_it || p.product_name || p.generic_name || '';
+      name     = brand && pname ? brand + ' – ' + pname : brand || pname;
       imageUrl = p.image_front_small_url || p.image_url || null;
     }
 
     if (name) {
       setStatus('✅ ' + name, 'found');
+      setTimeout(() => {
+        closeScanner();
+        setTimeout(() => openQRForm(name, imageUrl), 150);
+      }, 1000);
     } else {
       setStatus('Prodotto non trovato, inserisci il nome ✏️', 'error');
+      setTimeout(() => {
+        closeScanner();
+        setTimeout(() => prefillManualForm('', null, false), 150);
+      }, 1200);
     }
-
-    setTimeout(() => {
-      closeScanner();
-      setTimeout(() => prefillManualForm(name, imageUrl, !!name), 150);
-    }, 1000);
 
   } catch(_) {
     setStatus('Errore di rete — inserisci manualmente', 'error');
@@ -703,6 +695,56 @@ async function onBarcodeDetected(barcode) {
       setTimeout(() => prefillManualForm('', null, false), 150);
     }, 1200);
   }
+}
+
+/* ──────────────────────────────────────────
+   QR PRODUCT FORM
+   ────────────────────────────────────────── */
+let pendingQRProduct = null;   // { name, imageUrl }
+
+function openQRForm(name, imageUrl) {
+  pendingQRProduct = { name, imageUrl };
+
+  // nome prodotto nel preview
+  document.getElementById('qr-product-name').textContent = name;
+
+  // immagine o emoji nel preview
+  const imgEl = document.getElementById('qr-preview-img');
+  if (imageUrl) {
+    imgEl.innerHTML = `<img src="${imageUrl}" alt="${name}" style="width:52px;height:52px;border-radius:12px;object-fit:cover;">`;
+  } else {
+    imgEl.textContent = getEmoji(name);
+  }
+
+  // reset campi
+  document.getElementById('qr-qty').value  = '';
+  document.getElementById('qr-date').value = '';
+
+  goTo('screen-qr');
+  setTimeout(() => document.getElementById('qr-qty').focus(), 400);
+}
+
+function addProductFromQR() {
+  if (!pendingQRProduct) { goTo('screen-add'); return; }
+
+  const qty  = (document.getElementById('qr-qty').value  || '').trim();
+  const type =  document.getElementById('qr-type').value;
+  const dateR = (document.getElementById('qr-date').value || '').trim();
+
+  if (!qty || !dateR) { showToast('Compila quantità e scadenza 🌿'); return; }
+
+  mergeOrAddProduct(
+    pendingQRProduct.name,
+    qty,
+    type,
+    formatDate(dateR),
+    true,
+    pendingQRProduct.imageUrl
+  );
+
+  pendingQRProduct    = null;
+  pendingProductImage = null;
+  goTo('screen-success');
 }
 
 function prefillManualForm(name, imageUrl, nameConfirmed) {

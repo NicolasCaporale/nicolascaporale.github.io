@@ -274,6 +274,47 @@
     </div>
     <div class="footer">©Copyright 2025-26 Sigma Gooners & Co</div>
   </div>
+  <!-- ═══════════════ QR FORM ═══════════════ -->
+  <div id="screen-qr" class="screen">
+    <div class="back-header">
+      <button class="back-btn" onclick="goTo('screen-add')">‹</button>
+      <span class="back-title">Prodotto scansionato</span>
+    </div>
+    <div class="form-content">
+      <div id="qr-product-preview" style="
+        display:flex; align-items:center; gap:12px;
+        background:rgba(255,255,255,0.6); border-radius:16px;
+        padding:12px 14px; margin-bottom:12px;
+      ">
+        <div id="qr-preview-img" style="width:52px;height:52px;border-radius:12px;background:rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;">🥑</div>
+        <div>
+          <div id="qr-product-name" style="font-family:'Fredoka One',cursive;font-size:16px;color:#0d3320;"></div>
+          <div style="font-size:12px;font-weight:700;color:#2d8653;">Prodotto trovato ✅</div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="form-group">
+          <label class="form-label">Quantità:</label>
+          <input type="text" class="form-input" placeholder="es. 3" id="qr-qty">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tipo di scadenza:</label>
+          <div class="select-wrapper">
+            <select class="form-select" id="qr-type">
+              <option value="preferibilmente">Preferibilmente entro</option>
+              <option value="consumarsi">Da consumarsi entro</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Data scadenza (GG/MM/AA):</label>
+          <input type="text" class="form-input" placeholder="es. 25/12/25" id="qr-date" maxlength="8" inputmode="numeric">
+        </div>
+      </div>
+      <button class="btn" onclick="addProductFromQR()">Conferma ✓</button>
+    </div>
+    <div class="footer">©Copyright 2025-26 Sigma Gooners & Co</div>
+  </div>
   <!-- ═══════════════ SCANNER MODAL ═══════════════ -->
   <div id="scanner-modal" class="scanner-modal">
     <div class="scanner-inner">
