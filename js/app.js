@@ -433,26 +433,24 @@ async function saveProfile() {
   const u = await ensureCurrentUser();
   if (!u) return;
 
-  // Aggiorna email/password su Supabase Auth se cambiate
   if (e !== u.email || pw) {
-     const authUpdates = {};
-     if (e !== u.email) authUpdates.email = e;
-     if (pw) authUpdates.password = pw;
-     const { error: authError } = await _supabase.auth.updateUser(authUpdates);
-     if (authError) { showToast('Errore aggiornamento ❌'); console.error(authError); return; }
-     if (e !== u.email) {
-       showToast('Controlla la tua nuova email per confermare il cambio 📧');
-       return;
-     }
-   }
+    const authUpdates = {};
+    if (e !== u.email) authUpdates.email = e;
+    if (pw) authUpdates.password = pw;
+    const { error: authError } = await _supabase.auth.updateUser(authUpdates);
+    if (authError) { showToast('Errore aggiornamento ❌'); console.error(authError); return; }
+    if (e !== u.email) {
+      showToast('Controlla la tua nuova email per confermare il cambio 📧');
+      return;
+    }
+  }
 
-  // Aggiorna profilo nella tabella users
-  const { error } = await _supabase.from('users').update({ name: n, email: e }).eq('id', u.id);
+  const { error } = await _supabase.from('users').update({ name: n }).eq('id', u.id);
   if (error) { showToast('Errore salvataggio ❌'); console.error(error); return; }
 
-  _currentUser = { ..._currentUser, name: n, email: e };
+  _currentUser = { ..._currentUser, name: n };
   document.getElementById('profile-name-display').textContent  = n;
-  document.getElementById('profile-email-display').textContent = e;
+  document.getElementById('profile-email-display').textContent = u.email;
   document.getElementById('edit-pass').value = '';
   showToast('Profilo aggiornato ✓ 🌿');
 }
