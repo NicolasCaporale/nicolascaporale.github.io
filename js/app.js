@@ -586,6 +586,8 @@ function spawnParticles() {
 let html5QrCode         = null;
 let scannerBusy         = false;
 let pendingProductImage = null;
+let nativeScanLoop      = null;
+let nativeStream        = null;
 
 function openScanner() {
   scannerBusy         = false;
@@ -594,8 +596,60 @@ function openScanner() {
   setStatus('', '');
   document.getElementById('scanner-container').innerHTML = '';
 
-  html5QrCode = new Html5Qrcode('scanner-container');
+  if (typeof BarcodeDetector !== 'undefined') {
+    startNativeScanner();
+  } else {
+    startFallbackScanner();
+  }
+}
 
+/* ── SCANNER NATIVO (come Yuka) ── */
+async function startNativeScanner() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' }
+    });
+    nativeStream = stream;
+
+    const container = document.getElementById('scanner-container');
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    video.setAttribute('playsinline', true);
+    video.autoplay = true;
+    video.style.cssText = 'width:100%;border-radius:12px;display:block;';
+    container.appendChild(video);
+
+    const detector = new BarcodeDetector({
+      formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf']
+    });
+
+    async function tick() {
+      if (scannerBusy) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        try {
+          const barcodes = await detector.detect(video);
+          if (barcodes.length > 0) {
+            onBarcodeDetected(barcodes[0].rawValue);
+            return;
+          }
+        } catch (_) {}
+      }
+      nativeScanLoop = requestAnimationFrame(tick);
+    }
+
+    video.addEventListener('playing', () => {
+      nativeScanLoop = requestAnimationFrame(tick);
+    });
+
+  } catch (err) {
+    console.error(err);
+    setStatus('Permesso fotocamera negato ❌', 'error');
+  }
+}
+
+/* ── FALLBACK html5-qrcode ── */
+function startFallbackScanner() {
+  html5QrCode = new Html5Qrcode('scanner-container');
   Html5Qrcode.getCameras()
     .then(cameras => {
       if (!cameras || cameras.length === 0) {
@@ -628,26 +682,33 @@ function openScanner() {
 }
 
 function closeScanner() {
-  const modal   = document.getElementById('scanner-modal');
-  const doClose = () => {
-    modal.classList.remove('open');
-    document.getElementById('scanner-container').innerHTML = '';
-    html5QrCode = null;
-    scannerBusy = false;
-  };
+  const modal = document.getElementById('scanner-modal');
 
+  // ferma loop nativo
+  if (nativeScanLoop) {
+    cancelAnimationFrame(nativeScanLoop);
+    nativeScanLoop = null;
+  }
+  if (nativeStream) {
+    nativeStream.getTracks().forEach(t => t.stop());
+    nativeStream = null;
+  }
+
+  // ferma fallback
   if (html5QrCode) {
     const running = html5QrCode.getState &&
                     html5QrCode.getState() === Html5QrcodeScannerState.SCANNING;
     if (running) {
-      html5QrCode.stop().then(doClose).catch(doClose);
+      html5QrCode.stop().catch(() => {});
     } else {
       try { html5QrCode.clear(); } catch(_) {}
-      doClose();
     }
-  } else {
-    doClose();
+    html5QrCode = null;
   }
+
+  modal.classList.remove('open');
+  document.getElementById('scanner-container').innerHTML = '';
+  scannerBusy = false;
 }
 
 async function onBarcodeDetected(barcode) {
