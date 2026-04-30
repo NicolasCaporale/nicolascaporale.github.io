@@ -588,6 +588,7 @@ let scannerBusy         = false;
 let pendingProductImage = null;
 let nativeScanLoop      = null;
 let nativeStream        = null;
+let quaggaRunning       = false;
 
 function openScanner() {
   scannerBusy         = false;
@@ -598,16 +599,22 @@ function openScanner() {
 
   if (typeof BarcodeDetector !== 'undefined') {
     startNativeScanner();
+  } else if (typeof Quagga !== 'undefined') {
+    startQuaggaScanner();
   } else {
     startFallbackScanner();
   }
 }
 
-/* ── SCANNER NATIVO (come Yuka) ── */
+/* ── SCANNER NATIVO ── */
 async function startNativeScanner() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }
+      video: {
+        facingMode: 'environment',
+        width:  { ideal: 1280 },
+        height: { ideal: 720 },
+      }
     });
     nativeStream = stream;
 
@@ -616,11 +623,12 @@ async function startNativeScanner() {
     video.srcObject = stream;
     video.setAttribute('playsinline', true);
     video.autoplay = true;
+    video.muted    = true;
     video.style.cssText = 'width:100%;border-radius:12px;display:block;';
     container.appendChild(video);
 
     const detector = new BarcodeDetector({
-      formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf']
+      formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']
     });
 
     async function tick() {
@@ -642,9 +650,87 @@ async function startNativeScanner() {
     });
 
   } catch (err) {
-    console.error(err);
-    setStatus('Permesso fotocamera negato ❌', 'error');
+    console.error('Native scanner error:', err);
+    // fallback a quagga se native fallisce
+    if (typeof Quagga !== 'undefined') {
+      startQuaggaScanner();
+    } else {
+      setStatus('Permesso fotocamera negato ❌', 'error');
+    }
   }
+}
+
+/* ── QUAGGA SCANNER ── */
+function startQuaggaScanner() {
+  const container = document.getElementById('scanner-container');
+  quaggaRunning = false;
+
+  Quagga.init({
+    inputStream: {
+      name: 'Live',
+      type: 'LiveStream',
+      target: container,
+      constraints: {
+        facingMode: 'environment',
+        width:  { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    },
+    locator: {
+      patchSize: 'medium',
+      halfSample: false,       // false = più preciso, trova barcode piccoli
+    },
+    numOfWorkers: navigator.hardwareConcurrency || 2,
+    frequency: 20,             // analisi ogni 20 frame
+    locate: true,              // cerca il barcode ovunque nel frame
+    decoder: {
+      readers: [
+        'ean_reader',
+        'ean_8_reader',
+        'upc_reader',
+        'upc_e_reader',
+        'code_128_reader',
+        'code_39_reader',
+        'i2of5_reader',
+      ],
+      multiple: false,
+    },
+  }, function (err) {
+    if (err) {
+      console.error('Quagga init error:', err);
+      setStatus('Errore avvio fotocamera ❌', 'error');
+      return;
+    }
+    Quagga.start();
+    quaggaRunning = true;
+
+    // sistema lo stile del video iniettato da quagga
+    const video = container.querySelector('video');
+    if (video) {
+      video.style.cssText = 'width:100%;border-radius:12px;display:block;';
+    }
+    const canvas = container.querySelector('canvas');
+    if (canvas) canvas.style.display = 'none'; // nasconde canvas di debug
+  });
+
+  // risultato con confidence alta
+  Quagga.onProcessed(function(result) {
+    if (!result || scannerBusy) return;
+  });
+
+  Quagga.onDetected(function(result) {
+    if (scannerBusy) return;
+    const code = result?.codeResult?.code;
+    const confidence = result?.codeResult?.decodedCodes
+      ?.filter(c => c.error !== undefined)
+      ?.reduce((acc, c) => acc + (1 - c.error), 0) /
+      (result?.codeResult?.decodedCodes?.filter(c => c.error !== undefined)?.length || 1);
+
+    // accetta solo letture con confidence > 0.6 per evitare falsi positivi
+    if (code && (!confidence || confidence > 0.6)) {
+      onBarcodeDetected(code);
+    }
+  });
 }
 
 /* ── FALLBACK html5-qrcode ── */
@@ -684,7 +770,7 @@ function startFallbackScanner() {
 function closeScanner() {
   const modal = document.getElementById('scanner-modal');
 
-  // ferma loop nativo
+  // ferma native
   if (nativeScanLoop) {
     cancelAnimationFrame(nativeScanLoop);
     nativeScanLoop = null;
@@ -694,69 +780,29 @@ function closeScanner() {
     nativeStream = null;
   }
 
+  // ferma quagga
+  if (quaggaRunning) {
+    try { Quagga.stop(); } catch(_) {}
+    quaggaRunning = false;
+  }
+
   // ferma fallback
   if (html5QrCode) {
-    const running = html5QrCode.getState &&
-                    html5QrCode.getState() === Html5QrcodeScannerState.SCANNING;
-    if (running) {
-      html5QrCode.stop().catch(() => {});
-    } else {
-      try { html5QrCode.clear(); } catch(_) {}
-    }
+    try {
+      const running = html5QrCode.getState &&
+                      html5QrCode.getState() === Html5QrcodeScannerState.SCANNING;
+      if (running) {
+        html5QrCode.stop().catch(() => {});
+      } else {
+        html5QrCode.clear();
+      }
+    } catch(_) {}
     html5QrCode = null;
   }
 
   modal.classList.remove('open');
   document.getElementById('scanner-container').innerHTML = '';
   scannerBusy = false;
-}
-
-async function onBarcodeDetected(barcode) {
-  if (scannerBusy) return;
-  scannerBusy = true;
-
-  setStatus('Codice: ' + barcode + ' — cerco…', '');
-
-  try { if (html5QrCode) await html5QrCode.stop(); } catch(_) {}
-
-  try {
-    const res  = await fetch(
-      'https://world.openfoodfacts.org/api/v0/product/' + barcode + '.json'
-    );
-    const data = await res.json();
-
-    let name     = '';
-    let imageUrl = null;
-
-    if (data.status === 1 && data.product) {
-      const p     = data.product;
-      const brand = (p.brands || '').split(',')[0].trim();
-      const pname = p.product_name_it || p.product_name || p.generic_name || '';
-      name     = brand && pname ? brand + ' – ' + pname : brand || pname;
-      imageUrl = p.image_front_small_url || p.image_url || null;
-    }
-
-    if (name) {
-      setStatus('✅ ' + name, 'found');
-      setTimeout(() => {
-        closeScanner();
-        setTimeout(() => openQRForm(name, imageUrl), 150);
-      }, 1000);
-    } else {
-      setStatus('Prodotto non trovato, inserisci il nome ✏️', 'error');
-      setTimeout(() => {
-        closeScanner();
-        setTimeout(() => prefillManualForm('', null, false), 150);
-      }, 1200);
-    }
-
-  } catch(_) {
-    setStatus('Errore di rete — inserisci manualmente', 'error');
-    setTimeout(() => {
-      closeScanner();
-      setTimeout(() => prefillManualForm('', null, false), 150);
-    }, 1200);
-  }
 }
 
 /* ──────────────────────────────────────────
