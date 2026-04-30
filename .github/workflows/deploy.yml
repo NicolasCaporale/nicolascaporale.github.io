@@ -19,8 +19,8 @@ jobs:
       # 2. Sostituisce i placeholder nel tuo JS
       - name: Inject Supabase secrets
         run: |
-          sed -i "s|__SUPABASE_URL__|${{ secrets.SUPABASE_URL }}|g" js/app.js
-          sed -i "s|__SUPABASE_KEY__|${{ secrets.SUPABASE_KEY }}|g" js/app.js
+          echo "const SUPABASE_URL = '${{ secrets.SUPABASE_URL }}';" > js/config.js
+          echo "const SUPABASE_KEY = '${{ secrets.SUPABASE_KEY }}';" >> js/config.js
 
       # 3. Debug (VEDI se ha funzionato)
       - name: Debug output
