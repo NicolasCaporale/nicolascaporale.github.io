@@ -439,17 +439,21 @@ async function saveProfile() {
 
   const emailChanged = e !== user.email;
   const passwordChanged = !!pw;
-  let toastMessage = null;
 
-  // ── UPDATE AUTH (Email/Password) ──
+  // ── AUTH UPDATE ──
   if (emailChanged || passwordChanged) {
     const updates = {};
+
     if (emailChanged) {
-     updates.email = e;
-     updates.options = {
-       emailRedirectTo: 'https://aura-foods.it/conferma-email'
-     };
-    if (passwordChanged) updates.password = pw;
+      updates.email = e;
+      updates.options = {
+        emailRedirectTo: 'https://aura-foods.it/conferma-email'
+      };
+    }
+
+    if (passwordChanged) {
+      updates.password = pw;
+    }
 
     const { error } = await _supabase.auth.updateUser(updates);
 
@@ -459,16 +463,15 @@ async function saveProfile() {
       return;
     }
 
-    // 🔥 PRIORITÀ: EMAIL > PASSWORD
+    // MESSAGGI CORRETTI
     if (emailChanged) {
       showToast('Controlla la nuova email 📧');
     } else if (passwordChanged) {
       showToast('Profilo aggiornato ✓ 🔐');
-    }else if(!emailChanged && !passwordChanged){
-      showToast('Profilo aggiornato ✓ 🌿');
+    }
   }
 
-  // ── UPDATE NAME (Tabella users) ──
+  // ── DB UPDATE NAME ──
   const { error: dbError } = await _supabase
     .from('users')
     .update({ name: n })
@@ -480,7 +483,7 @@ async function saveProfile() {
     return;
   }
 
-  // ── REFRESH UI ──
+  // ── REFRESH ──
   _currentUser = null;
   const fresh = await ensureCurrentUser();
 
@@ -492,7 +495,6 @@ async function saveProfile() {
 
   document.getElementById('edit-pass').value = '';
 }
-
 
 function handleAvatar(input) {
   const file = input.files[0];
