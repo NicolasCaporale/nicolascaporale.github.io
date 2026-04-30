@@ -579,7 +579,6 @@ function spawnParticles() {
     orbs.appendChild(el);
   });
 }
-
 /* ──────────────────────────────────────────
    SCANNER REALE
    ────────────────────────────────────────── */
@@ -595,35 +594,48 @@ function openScanner() {
 
   html5QrCode = new Html5Qrcode('scanner-container');
 
-  Html5Qrcode.getCameras()
-    .then(cameras => {
-      if (!cameras || cameras.length === 0) {
-        setStatus('Nessuna fotocamera trovata ❌', 'error'); return;
-      }
-      html5QrCode.start(
-        { facingMode: 'environment' },
-        {
-          fps: 30,
-          aspectRatio: 1.7,
-          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.ITF,
-          ],
-        },
-        onBarcodeDetected,
-        () => {}
-      ).catch(err => {
-        console.error(err);
-        setStatus('Errore avvio fotocamera ❌', 'error');
-      });
-    })
-    .catch(() => setStatus('Permesso fotocamera negato ❌', 'error'));
+  html5QrCode.start(
+    { facingMode: 'environment' },
+    {
+      fps: 30,
+      aspectRatio: 1.7,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.ITF,
+      ],
+    },
+    onBarcodeDetected,
+    () => {}
+  ).catch(() => {
+    // facingMode environment fallito, prova senza vincoli
+    html5QrCode.start(
+      { facingMode: 'user' },
+      {
+        fps: 30,
+        aspectRatio: 1.7,
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.ITF,
+        ],
+      },
+      onBarcodeDetected,
+      () => {}
+    ).catch(() => {
+      setStatus('Accesso fotocamera negato ❌ — controlla i permessi del browser', 'error');
+    });
+  });
 }
 
 function closeScanner() {
