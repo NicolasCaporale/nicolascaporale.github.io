@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Conferma Email — Aura Foods</title>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/config.js"></script>
   <style>
@@ -39,7 +38,7 @@
       font-size: 15px;
       color: #4a6358;
       margin-bottom: 32px;
-      line-height: 1.5;
+      line-height: 1.6;
     }
     .btn {
       display: inline-block;
@@ -80,14 +79,12 @@
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     (async function () {
-      // Supabase mette i parametri nel fragment (#) oppure nella query string (?),
-      // a seconda della versione e del tipo di link. Li leggiamo da entrambi.
       const fromHash  = new URLSearchParams(window.location.hash.replace(/^#/, ''));
       const fromQuery = new URLSearchParams(window.location.search);
 
-      const type  = fromHash.get('type')  || fromQuery.get('type');
-      const token = fromHash.get('token') || fromQuery.get('token');
-      const stato = document.getElementById('stato');
+      const type    = fromHash.get('type')    || fromQuery.get('type');
+      const message = fromHash.get('message') || fromQuery.get('message');
+      const stato   = document.getElementById('stato');
 
       // ── SIGNUP ──────────────────────────────────────────────────────
       if (type === 'signup') {
@@ -96,30 +93,38 @@
           <div class="emoji">🥑</div>
           <div class="badge">Account confermato</div>
           <div class="title">Benvenuto su Aura Foods!</div>
-          <div class="subtitle">Il tuo account è attivo.<br>Accedi per iniziare a usare l'app.</div>
+          <div class="subtitle">Il tuo account è attivo.<br>Accedi per iniziare.</div>
           <a class="btn" href="https://aura-foods.it">Accedi ora →</a>
         `;
 
-      // ── EMAIL CHANGE ─────────────────────────────────────────────────
+      // ── EMAIL CHANGE (seconda mail, redirect corretto) ───────────────
       } else if (type === 'email_change') {
-        // Supabase v2: il cambio email si completa automaticamente al click sul link.
-        // Forziamo comunque il logout per obbligare il re-login con la nuova email.
         await _supabase.auth.signOut();
         stato.innerHTML = `
           <div class="emoji">✉️</div>
           <div class="badge">Email aggiornata</div>
           <div class="title">Indirizzo email modificato</div>
-          <div class="subtitle">La tua nuova email è stata confermata con successo.<br>Accedi di nuovo con il nuovo indirizzo.</div>
+          <div class="subtitle">La tua nuova email è stata confermata.<br>Accedi di nuovo con il nuovo indirizzo.</div>
           <a class="btn" href="https://aura-foods.it">Accedi con la nuova email →</a>
         `;
 
-      // ── FALLBACK (link non valido / scaduto) ──────────────────────────
+      // ── PRIMA MAIL cambio email ("Confirmation link accepted") ───────
+      } else if (message && message.includes('Confirmation link accepted')) {
+        stato.innerHTML = `
+          <div class="emoji">📬</div>
+          <div class="badge">Quasi fatto!</div>
+          <div class="title">Conferma la nuova email</div>
+          <div class="subtitle">Abbiamo inviato un link al tuo nuovo indirizzo.<br>Aprilo per completare il cambio email.</div>
+          <a class="btn" href="https://aura-foods.it">Torna all'app →</a>
+        `;
+
+      // ── FALLBACK ─────────────────────────────────────────────────────
       } else {
         stato.innerHTML = `
           <div class="emoji">❌</div>
           <div class="title">Link non valido</div>
           <div class="subtitle">Il link è scaduto o è già stato usato.<br>Riprova dall'app.</div>
-          <a class="btn" href="https://aura-foods.it" style="margin-top:8px;">Torna all'app →</a>
+          <a class="btn" href="https://aura-foods.it">Torna all'app →</a>
         `;
       }
     })();
