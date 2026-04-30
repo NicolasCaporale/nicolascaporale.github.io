@@ -41,10 +41,9 @@ function goTo(screenId) {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
-    // NUOVO: rimuovi preview residuo ogni volta che si entra in screen-manual
     const old = document.getElementById('scan-product-preview');
     if (old) old.remove();
-    pendingProductImage = null;  // resetta anche l'immagine pendente
+    pendingProductImage = null;
   }
 }
 
@@ -253,7 +252,6 @@ function isExpiringSoon(s) {
 /* ──────────────────────────────────────────
    AI
    ────────────────────────────────────────── */
-
 async function getAISafety(productName, imageUrl) {
   const contentParts = [];
 
@@ -306,6 +304,7 @@ Se non riesci a stimare, usa extraDays: 0.`
   if (!parsed || parsed.extraDays <= 0) return null;
   return parsed;
 }
+
 /* ──────────────────────────────────────────
    SHELF
    ────────────────────────────────────────── */
@@ -579,6 +578,7 @@ function spawnParticles() {
     orbs.appendChild(el);
   });
 }
+
 /* ──────────────────────────────────────────
    SCANNER REALE
    ────────────────────────────────────────── */
@@ -587,55 +587,42 @@ let scannerBusy         = false;
 let pendingProductImage = null;
 
 function openScanner() {
-  scannerBusy = false;
+  scannerBusy         = false;
+  pendingProductImage = null;
   document.getElementById('scanner-modal').classList.add('open');
   setStatus('', '');
   document.getElementById('scanner-container').innerHTML = '';
 
   html5QrCode = new Html5Qrcode('scanner-container');
 
-  html5QrCode.start(
-    { facingMode: 'environment' },
-    {
-      fps: 30,
-      aspectRatio: 1.7,
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.ITF,
-      ],
-    },
-    onBarcodeDetected,
-    () => {}
-  ).catch(() => {
-    // facingMode environment fallito, prova senza vincoli
-    html5QrCode.start(
-      { facingMode: 'user' },
-      {
-        fps: 30,
-        aspectRatio: 1.7,
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.ITF,
-        ],
-      },
-      onBarcodeDetected,
-      () => {}
-    ).catch(() => {
-      setStatus('Accesso fotocamera negato ❌ — controlla i permessi del browser', 'error');
-    });
-  });
+  Html5Qrcode.getCameras()
+    .then(cameras => {
+      if (!cameras || cameras.length === 0) {
+        setStatus('Nessuna fotocamera trovata ❌', 'error'); return;
+      }
+      html5QrCode.start(
+        { facingMode: 'environment' },
+        {
+          fps: 30,                              // modificato: era 15
+          qrbox: { width: 280, height: 160 },  // modificato: era height 100
+          aspectRatio: 1.7,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+          ],
+        },
+        onBarcodeDetected,
+        () => {}
+      ).catch(err => {
+        console.error(err);
+        setStatus('Errore avvio fotocamera ❌', 'error');
+      });
+    })
+    .catch(() => setStatus('Permesso fotocamera negato ❌', 'error'));
 }
 
 function closeScanner() {
@@ -648,33 +635,77 @@ function closeScanner() {
   };
 
   if (html5QrCode) {
-    try {
-      const running = html5QrCode.getState &&
-                      html5QrCode.getState() === Html5QrcodeScannerState.SCANNING;
-      if (running) {
-        html5QrCode.stop().then(doClose).catch(doClose);
-      } else {
-        html5QrCode.clear();
-        doClose();
-      }
-    } catch(_) { doClose(); }
+    const running = html5QrCode.getState &&
+                    html5QrCode.getState() === Html5QrcodeScannerState.SCANNING;
+    if (running) {
+      html5QrCode.stop().then(doClose).catch(doClose);
+    } else {
+      try { html5QrCode.clear(); } catch(_) {}
+      doClose();
+    }
   } else {
     doClose();
+  }
+}
+
+async function onBarcodeDetected(barcode) {
+  if (scannerBusy) return;
+  scannerBusy = true;
+
+  setStatus('Codice: ' + barcode + ' — cerco…', '');
+
+  try { if (html5QrCode) await html5QrCode.stop(); } catch(_) {}
+
+  try {
+    const res  = await fetch(
+      'https://world.openfoodfacts.org/api/v0/product/' + barcode + '.json'
+    );
+    const data = await res.json();
+
+    let name     = '';
+    let imageUrl = null;
+
+    if (data.status === 1 && data.product) {
+      const p     = data.product;
+      const brand = (p.brands || '').split(',')[0].trim();
+      const pname = p.product_name_it || p.product_name || p.generic_name || '';
+      name     = brand && pname ? brand + ' – ' + pname : brand || pname;
+      imageUrl = p.image_front_small_url || p.image_url || null;
+    }
+
+    if (name) {
+      setStatus('✅ ' + name, 'found');
+      setTimeout(() => {
+        closeScanner();
+        setTimeout(() => openQRForm(name, imageUrl), 150);
+      }, 1000);
+    } else {
+      setStatus('Prodotto non trovato, inserisci il nome ✏️', 'error');
+      setTimeout(() => {
+        closeScanner();
+        setTimeout(() => prefillManualForm('', null, false), 150);
+      }, 1200);
+    }
+
+  } catch(_) {
+    setStatus('Errore di rete — inserisci manualmente', 'error');
+    setTimeout(() => {
+      closeScanner();
+      setTimeout(() => prefillManualForm('', null, false), 150);
+    }, 1200);
   }
 }
 
 /* ──────────────────────────────────────────
    QR PRODUCT FORM
    ────────────────────────────────────────── */
-let pendingQRProduct = null;   // { name, imageUrl }
+let pendingQRProduct = null;
 
 function openQRForm(name, imageUrl) {
   pendingQRProduct = { name, imageUrl };
 
-  // nome prodotto nel preview
   document.getElementById('qr-product-name').textContent = name;
 
-  // immagine o emoji nel preview
   const imgEl = document.getElementById('qr-preview-img');
   if (imageUrl) {
     imgEl.innerHTML = `<img src="${imageUrl}" alt="${name}" style="width:52px;height:52px;border-radius:12px;object-fit:cover;">`;
@@ -682,7 +713,6 @@ function openQRForm(name, imageUrl) {
     imgEl.textContent = getEmoji(name);
   }
 
-  // reset campi
   document.getElementById('qr-qty').value  = '';
   document.getElementById('qr-date').value = '';
 
@@ -693,8 +723,8 @@ function openQRForm(name, imageUrl) {
 function addProductFromQR() {
   if (!pendingQRProduct) { goTo('screen-add'); return; }
 
-  const qty  = (document.getElementById('qr-qty').value  || '').trim();
-  const type =  document.getElementById('qr-type').value;
+  const qty   = (document.getElementById('qr-qty').value  || '').trim();
+  const type  =  document.getElementById('qr-type').value;
   const dateR = (document.getElementById('qr-date').value || '').trim();
 
   if (!qty || !dateR) { showToast('Compila quantità e scadenza 🌿'); return; }
@@ -724,15 +754,12 @@ function prefillManualForm(name, imageUrl, nameConfirmed) {
   if (qtyEl)  qtyEl.value  = '';
   if (dateEl) dateEl.value  = '';
 
-  // nasconde il campo nome se già confermato dallo scanner
   const nameGroup = nameEl?.closest('.form-group');
   if (nameGroup) nameGroup.style.display = nameConfirmed ? 'none' : '';
 
-  // rimuove eventuale anteprima precedente
   const existingPreview = document.getElementById('scan-product-preview');
   if (existingPreview) existingPreview.remove();
 
-  // mostra anteprima con immagine se disponibile
   if (name && imageUrl) {
     const preview = document.createElement('div');
     preview.id = 'scan-product-preview';
