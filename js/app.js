@@ -602,10 +602,7 @@ function openScanner() {
         setStatus('Nessuna fotocamera trovata ❌', 'error'); return;
       }
       html5QrCode.start(
-        {
-          facingMode: 'environment',
-          width:  { ideal: 1920 },   // alta risoluzione → barcode piccoli leggibili
-          height: { ideal: 1080 },
+        { facingMode: 'environment' },
         },
         {
           fps: 30,                   // più tentativi al secondo
