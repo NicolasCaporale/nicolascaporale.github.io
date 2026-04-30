@@ -425,32 +425,67 @@ async function loadProfile() {
 }
 
 async function saveProfile() {
-  const n  = (document.getElementById('edit-name').value  || '').trim();
-  const e  = (document.getElementById('edit-email').value || '').trim().toLowerCase();
-  const pw =  document.getElementById('edit-pass').value  || '';
-  if (!n || !e) { showToast('Nome e email obbligatori'); return; }
+  const n = (document.getElementById('edit-name').value || '').trim();
+  const e = (document.getElementById('edit-email').value || '').trim().toLowerCase();
+  const pw = document.getElementById('edit-pass').value || '';
+
+  if (!n || !e) {
+    showToast('Nome e email obbligatori');
+    return;
+  }
 
   const u = await ensureCurrentUser();
   if (!u) return;
 
+  // ── UPDATE AUTH (email / password) ──
   if (e !== u.email || pw) {
     const authUpdates = {};
-    if (e !== u.email) authUpdates.email = e;
-    if (pw) authUpdates.password = pw;
-    const { error: authError } = await _supabase.auth.updateUser(authUpdates);
-    if (authError) { showToast('Errore aggiornamento ❌'); console.error(authError); return; }
     if (e !== u.email) {
-      showToast('Controlla la tua nuova email per confermare il cambio 📧');
+      authUpdates.email = e;
+    }
+
+    if (pw) {
+      authUpdates.password = pw;
+    }
+
+    const { error: authError } = await _supabase.auth.updateUser(authUpdates);
+
+    if (authError) {
+      showToast('Errore aggiornamento ❌');
+      console.error(authError);
       return;
+    }
+
+    if (e !== u.email) {
+      showToast('Conferma la nuova email 📧 (controlla la posta)');
+    }
+
+    if (pw) {
+      showToast('Password aggiornata 🔐');
     }
   }
 
-  const { error } = await _supabase.from('users').update({ name: n }).eq('id', u.id);
-  if (error) { showToast('Errore salvataggio ❌'); console.error(error); return; }
+  // ── UPDATE SOLO DATI NON AUTH ──
+  const { error } = await _supabase
+    .from('users')
+    .update({ name: n })
+    .eq('id', u.id);
 
-  _currentUser = { ..._currentUser, name: n };
-  document.getElementById('profile-name-display').textContent  = n;
-  document.getElementById('profile-email-display').textContent = u.email;
+  if (error) {
+    showToast('Errore salvataggio ❌');
+    console.error(error);
+    return;
+  }
+
+  // ── REFRESH DATI UTENTE ──
+  _currentUser = null;
+  const fresh = await ensureCurrentUser();
+
+  document.getElementById('profile-name-display').textContent =
+    fresh?.name || 'Utente';
+  document.getElementById('profile-email-display').textContent =
+    fresh?.email || 'email@esempio.com';
+  
   document.getElementById('edit-pass').value = '';
   showToast('Profilo aggiornato ✓ 🌿');
 }
