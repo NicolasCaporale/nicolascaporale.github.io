@@ -439,8 +439,9 @@ async function saveProfile() {
 
   const emailChanged = e !== user.email;
   const passwordChanged = !!pw;
+  let toastMessage = null;
 
-  // ── UPDATE AUTH (Email e Password) ──
+  // ── UPDATE AUTH (Email/Password) ──
   if (emailChanged || passwordChanged) {
     const updates = {};
     if (emailChanged) updates.email = e;
@@ -454,16 +455,15 @@ async function saveProfile() {
       return;
     }
 
+    // 🔥 PRIORITÀ: EMAIL > PASSWORD
     if (emailChanged) {
-      showToast('Conferma la nuova email 📧');
-    }
-
-    if (passwordChanged) {
-      showToast('Password aggiornata 🔐');
+      toastMessage = 'Controlla la nuova email 📧';
+    } else if (passwordChanged) {
+      toastMessage = 'Profilo aggiornato ✓ 🔐';
     }
   }
 
-  // ── UPDATE NAME (Tabella users nel database) ──
+  // ── UPDATE NAME (Tabella users) ──
   const { error: dbError } = await _supabase
     .from('users')
     .update({ name: n })
@@ -481,17 +481,21 @@ async function saveProfile() {
 
   document.getElementById('profile-name-display').textContent =
     fresh?.name || 'Utente';
-    
+
   document.getElementById('profile-email-display').textContent =
     user.email || 'email@esempio.com';
 
   document.getElementById('edit-pass').value = '';
 
-  // ✅ QUI FIX IMPORTANTE
-  if (!emailChanged) {
+  // ── TOAST FINALE ──
+  if (toastMessage) {
+    showToast(toastMessage);
+  } else {
+    // Caso in cui viene cambiato solo il nome
     showToast('Profilo aggiornato ✓ 🌿');
   }
 }
+
 
 function handleAvatar(input) {
   const file = input.files[0];
