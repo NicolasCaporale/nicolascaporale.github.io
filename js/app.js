@@ -440,34 +440,30 @@ async function saveProfile() {
   const emailChanged = e !== user.email;
   const passwordChanged = !!pw;
 
-  // ── UPDATE AUTH (Email/Password) ──
   if (emailChanged || passwordChanged) {
     const updates = {};
     if (emailChanged) {
       updates.email = e;
-      updates.options = {
-        emailRedirectTo: 'https://aura-foods.it/conferma-email'
-      };
-    } // <-- MANCAVA QUESTA
-
+      updates.options = { emailRedirectTo: 'https://aura-foods.it/conferma-email' };
+    }
     if (passwordChanged) updates.password = pw;
 
     const { error } = await _supabase.auth.updateUser(updates);
-
     if (error) {
       showToast('Errore aggiornamento ❌');
       console.error(error);
       return;
     }
+  }
 
-    if (emailChanged) {
-      showToast('Controlla la nuova email 📧');
-    } else if (passwordChanged) {
-      showToast('Profilo aggiornato ✓ 🔐');
-    }
-  } // <-- MANCAVA QUESTA
+  if (emailChanged) {
+    showToast('Controlla la nuova email 📧');
+  } else if (passwordChanged) {
+    showToast('Profilo aggiornato ✓ 🔐');
+  } else {
+    showToast('Profilo aggiornato ✓ 🌿');
+  }
 
-  // ── UPDATE NAME (Tabella users) ──
   const { error: dbError } = await _supabase
     .from('users')
     .update({ name: n })
@@ -479,10 +475,8 @@ async function saveProfile() {
     return;
   }
 
-  // ── REFRESH UI ──
   _currentUser = null;
   const fresh = await ensureCurrentUser();
-
   document.getElementById('profile-name-display').textContent = fresh?.name || 'Utente';
   document.getElementById('profile-email-display').textContent = user.email || 'email@esempio.com';
   document.getElementById('edit-pass').value = '';
