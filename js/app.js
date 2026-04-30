@@ -588,48 +588,74 @@ let scannerBusy         = false;
 let pendingProductImage = null;
 let nativeScanLoop      = null;
 let nativeStream        = null;
-let quaggaRunning       = false;
 
 function openScanner() {
-  scannerBusy         = false;
-  pendingProductImage = null;
+  scannerBusy  = false;
+  nativeScanLoop = null;
+  nativeStream   = null;
   document.getElementById('scanner-modal').classList.add('open');
   setStatus('', '');
   document.getElementById('scanner-container').innerHTML = '';
 
   if (typeof BarcodeDetector !== 'undefined') {
-    startNativeScanner();
-  } else if (typeof Quagga !== 'undefined') {
-    startQuaggaScanner();
+    BarcodeDetector.getSupportedFormats().then(formats => {
+      const needed = ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf'];
+      const supported = needed.filter(f => formats.includes(f));
+      if (supported.length > 0) {
+        startNativeScanner(supported);
+      } else {
+        startFallbackScanner();
+      }
+    }).catch(() => startFallbackScanner());
   } else {
     startFallbackScanner();
   }
 }
 
-/* ── SCANNER NATIVO ── */
-async function startNativeScanner() {
+/* ── SCANNER NATIVO — usa la stessa API di Yuka/fotocamera OS ── */
+async function startNativeScanner(formats) {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment',
-        width:  { ideal: 1280 },
-        height: { ideal: 720 },
-      }
+      video: { facingMode: 'environment' }
     });
     nativeStream = stream;
 
     const container = document.getElementById('scanner-container');
-    const video = document.createElement('video');
-    video.srcObject = stream;
-    video.setAttribute('playsinline', true);
-    video.autoplay = true;
-    video.muted    = true;
-    video.style.cssText = 'width:100%;border-radius:12px;display:block;';
-    container.appendChild(video);
 
-    const detector = new BarcodeDetector({
-      formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf']
-    });
+    // Wrapper per posizionare il box decorativo sopra il video
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;width:100%;';
+
+    const video = document.createElement('video');
+    video.srcObject  = stream;
+    video.setAttribute('playsinline', true);
+    video.autoplay   = true;
+    video.muted      = true;
+    video.style.cssText = 'width:100%;border-radius:12px;display:block;';
+    wrapper.appendChild(video);
+
+    // Box decorativo — solo estetico, NON limita il rilevamento
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position:absolute;top:50%;left:50%;
+      transform:translate(-50%,-50%);
+      width:75%;height:35%;
+      border:2px solid rgba(45,200,100,0.8);
+      border-radius:12px;
+      box-shadow:0 0 0 9999px rgba(0,0,0,0.35);
+      pointer-events:none;
+    `;
+    // angolini verdi
+    overlay.innerHTML = `
+      <div style="position:absolute;top:-2px;left:-2px;width:20px;height:20px;border-top:3px solid #2dc864;border-left:3px solid #2dc864;border-radius:4px 0 0 0;"></div>
+      <div style="position:absolute;top:-2px;right:-2px;width:20px;height:20px;border-top:3px solid #2dc864;border-right:3px solid #2dc864;border-radius:0 4px 0 0;"></div>
+      <div style="position:absolute;bottom:-2px;left:-2px;width:20px;height:20px;border-bottom:3px solid #2dc864;border-left:3px solid #2dc864;border-radius:0 0 0 4px;"></div>
+      <div style="position:absolute;bottom:-2px;right:-2px;width:20px;height:20px;border-bottom:3px solid #2dc864;border-right:3px solid #2dc864;border-radius:0 0 4px 0;"></div>
+    `;
+    wrapper.appendChild(overlay);
+    container.appendChild(wrapper);
+
+    const detector = new BarcodeDetector({ formats });
 
     async function tick() {
       if (scannerBusy) return;
@@ -638,7 +664,7 @@ async function startNativeScanner() {
           const barcodes = await detector.detect(video);
           if (barcodes.length > 0) {
             onBarcodeDetected(barcodes[0].rawValue);
-            return;
+            return; // non schedula il prossimo tick
           }
         } catch (_) {}
       }
@@ -651,86 +677,8 @@ async function startNativeScanner() {
 
   } catch (err) {
     console.error('Native scanner error:', err);
-    // fallback a quagga se native fallisce
-    if (typeof Quagga !== 'undefined') {
-      startQuaggaScanner();
-    } else {
-      setStatus('Permesso fotocamera negato ❌', 'error');
-    }
+    startFallbackScanner();
   }
-}
-
-/* ── QUAGGA SCANNER ── */
-function startQuaggaScanner() {
-  const container = document.getElementById('scanner-container');
-  quaggaRunning = false;
-
-  Quagga.init({
-    inputStream: {
-      name: 'Live',
-      type: 'LiveStream',
-      target: container,
-      constraints: {
-        facingMode: 'environment',
-        width:  { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-    },
-    locator: {
-      patchSize: 'medium',
-      halfSample: false,       // false = più preciso, trova barcode piccoli
-    },
-    numOfWorkers: navigator.hardwareConcurrency || 2,
-    frequency: 20,             // analisi ogni 20 frame
-    locate: true,              // cerca il barcode ovunque nel frame
-    decoder: {
-      readers: [
-        'ean_reader',
-        'ean_8_reader',
-        'upc_reader',
-        'upc_e_reader',
-        'code_128_reader',
-        'code_39_reader',
-        'i2of5_reader',
-      ],
-      multiple: false,
-    },
-  }, function (err) {
-    if (err) {
-      console.error('Quagga init error:', err);
-      setStatus('Errore avvio fotocamera ❌', 'error');
-      return;
-    }
-    Quagga.start();
-    quaggaRunning = true;
-
-    // sistema lo stile del video iniettato da quagga
-    const video = container.querySelector('video');
-    if (video) {
-      video.style.cssText = 'width:100%;border-radius:12px;display:block;';
-    }
-    const canvas = container.querySelector('canvas');
-    if (canvas) canvas.style.display = 'none'; // nasconde canvas di debug
-  });
-
-  // risultato con confidence alta
-  Quagga.onProcessed(function(result) {
-    if (!result || scannerBusy) return;
-  });
-
-  Quagga.onDetected(function(result) {
-    if (scannerBusy) return;
-    const code = result?.codeResult?.code;
-    const confidence = result?.codeResult?.decodedCodes
-      ?.filter(c => c.error !== undefined)
-      ?.reduce((acc, c) => acc + (1 - c.error), 0) /
-      (result?.codeResult?.decodedCodes?.filter(c => c.error !== undefined)?.length || 1);
-
-    // accetta solo letture con confidence > 0.6 per evitare falsi positivi
-    if (code && (!confidence || confidence > 0.6)) {
-      onBarcodeDetected(code);
-    }
-  });
 }
 
 /* ── FALLBACK html5-qrcode ── */
@@ -778,12 +726,6 @@ function closeScanner() {
   if (nativeStream) {
     nativeStream.getTracks().forEach(t => t.stop());
     nativeStream = null;
-  }
-
-  // ferma quagga
-  if (quaggaRunning) {
-    try { Quagga.stop(); } catch(_) {}
-    quaggaRunning = false;
   }
 
   // ferma fallback
