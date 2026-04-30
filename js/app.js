@@ -7,8 +7,6 @@
 /* ──────────────────────────────────────────
    SUPABASE CLIENT
    ────────────────────────────────────────── */
-const SUPABASE_URL = '__SUPABASE_URL__';
-const SUPABASE_KEY = '__SUPABASE_KEY__';
 const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /* ──────────────────────────────────────────
