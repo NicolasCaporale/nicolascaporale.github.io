@@ -4,44 +4,71 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Conferma Email — Aura Foods</title>
+
   <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/config.js"></script>
 </head>
-<body style="margin:0;padding:0;background:#f0f7f4;display:flex;align-items:center;justify-content:center;min-height:100vh;">
-  <div style="text-align:center;padding:40px 20px;">
+
+<body>
+  <div>
     <div id="stato">
-      <div style="font-size:48px;margin-bottom:16px;">⏳</div>
-      <div style="font-family:'Fredoka One',cursive;font-size:22px;color:#0d3320;">Conferma in corso...</div>
+      <div>⏳</div>
+      <div>Conferma in corso...</div>
     </div>
   </div>
 
   <script>
     const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    (async function() {
+    (async function () {
+
       const hash = new URLSearchParams(window.location.hash.replace('#', '?'));
       const type = hash.get('type');
-    
-      if (type === 'signup') {
-        // Distruggi la sessione — l'utente deve fare login manualmente
-        await _supabase.auth.signOut();
-        document.getElementById('stato').innerHTML = `
-          <div style="font-size:64px;margin-bottom:16px;">🥑</div>
-          <div style="font-family:'Fredoka One',cursive;font-size:26px;color:#0d3320;margin-bottom:8px;">Email confermata!</div>
-          <div style="font-size:15px;color:#4a6358;margin-bottom:32px;">Benvenuto su Aura Foods</div>
-          <a href="https://aura-foods.it" style="display:inline-block;background:linear-gradient(135deg,#1a5c3a,#2d8653);color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:16px 40px;border-radius:50px;">
-            Accedi ora →
-          </a>`;
-      } else {
-        document.getElementById('stato').innerHTML = `
-          <div style="font-size:48px;margin-bottom:16px;">❌</div>
-          <div style="font-family:'Fredoka One',cursive;font-size:22px;color:#0d3320;margin-bottom:8px;">Link non valido</div>
-          <a href="https://aura-foods.it" style="display:inline-block;background:linear-gradient(135deg,#1a5c3a,#2d8653);color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:16px 40px;border-radius:50px;margin-top:24px;">
-            Torna all'app →
-          </a>`;
+      const error = hash.get('error_description');
+
+      const stato = document.getElementById('stato');
+
+      if (error) {
+        stato.innerHTML = `
+          <div>❌</div>
+          <div>Link non valido o scaduto</div>
+          <a href="https://aura-foods.it">Torna all'app</a>
+        `;
+        return;
       }
+
+      if (type === 'signup') {
+        await _supabase.auth.signOut();
+
+        stato.innerHTML = `
+          <div>🥑</div>
+          <div>Email confermata!</div>
+          <div>Ora puoi accedere al tuo account</div>
+          <a href="https://aura-foods.it">Accedi</a>
+        `;
+        return;
+      }
+
+      if (type === 'email_change') {
+        stato.innerHTML = `
+          <div>📧</div>
+          <div>Email confermata!</div>
+          <div>Assicurati di confermare entrambe le email per accedere con la nuova!</div>
+          <a href="https://aura-foods.it">Vai al login</a>
+        `;
+        return;
+      }
+
+      // fallback
+      stato.innerHTML = `
+        <div>❌</div>
+        <div>Link non valido</div>
+        <a href="https://aura-foods.it">Torna all'app</a>
+      `;
+
     })();
   </script>
 </body>
