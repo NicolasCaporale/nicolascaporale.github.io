@@ -23,8 +23,10 @@
     (async function() {
       const hash = new URLSearchParams(window.location.hash.replace('#', '?'));
       const type = hash.get('type');
-
+    
       if (type === 'signup') {
+        // Distruggi la sessione — l'utente deve fare login manualmente
+        await _supabase.auth.signOut();
         document.getElementById('stato').innerHTML = `
           <div style="font-size:64px;margin-bottom:16px;">🥑</div>
           <div style="font-family:'Fredoka One',cursive;font-size:26px;color:#0d3320;margin-bottom:8px;">Email confermata!</div>
