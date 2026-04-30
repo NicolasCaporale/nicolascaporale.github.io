@@ -622,19 +622,17 @@ async function startNativeScanner(formats) {
 
     const container = document.getElementById('scanner-container');
 
-    // Wrapper per posizionare il box decorativo sopra il video
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'position:relative;width:100%;';
 
     const video = document.createElement('video');
-    video.srcObject  = stream;
+    video.srcObject = stream;
     video.setAttribute('playsinline', true);
-    video.autoplay   = true;
-    video.muted      = true;
+    video.autoplay  = true;
+    video.muted     = true;
     video.style.cssText = 'width:100%;border-radius:12px;display:block;';
     wrapper.appendChild(video);
 
-    // Box decorativo — solo estetico, NON limita il rilevamento
     const overlay = document.createElement('div');
     overlay.style.cssText = `
       position:absolute;top:50%;left:50%;
@@ -645,7 +643,6 @@ async function startNativeScanner(formats) {
       box-shadow:0 0 0 9999px rgba(0,0,0,0.35);
       pointer-events:none;
     `;
-    // angolini verdi
     overlay.innerHTML = `
       <div style="position:absolute;top:-2px;left:-2px;width:20px;height:20px;border-top:3px solid #2dc864;border-left:3px solid #2dc864;border-radius:4px 0 0 0;"></div>
       <div style="position:absolute;top:-2px;right:-2px;width:20px;height:20px;border-top:3px solid #2dc864;border-right:3px solid #2dc864;border-radius:0 4px 0 0;"></div>
@@ -655,7 +652,20 @@ async function startNativeScanner(formats) {
     wrapper.appendChild(overlay);
     container.appendChild(wrapper);
 
-    const detector = new BarcodeDetector({ formats });
+    let detector;
+    try {
+      detector = new BarcodeDetector({ formats });
+      // test immediato per verificare che funzioni davvero
+      await detector.detect(video);
+    } catch(_) {
+      // BarcodeDetector esiste ma non funziona su questo browser/OS
+      // libera la camera prima di passare al fallback
+      stream.getTracks().forEach(t => t.stop());
+      nativeStream = null;
+      document.getElementById('scanner-container').innerHTML = '';
+      startFallbackScanner();
+      return;
+    }
 
     async function tick() {
       if (scannerBusy) return;
@@ -664,7 +674,7 @@ async function startNativeScanner(formats) {
           const barcodes = await detector.detect(video);
           if (barcodes.length > 0) {
             onBarcodeDetected(barcodes[0].rawValue);
-            return; // non schedula il prossimo tick
+            return;
           }
         } catch (_) {}
       }
@@ -677,6 +687,12 @@ async function startNativeScanner(formats) {
 
   } catch (err) {
     console.error('Native scanner error:', err);
+    // libera tutto prima del fallback
+    if (nativeStream) {
+      nativeStream.getTracks().forEach(t => t.stop());
+      nativeStream = null;
+    }
+    document.getElementById('scanner-container').innerHTML = '';
     startFallbackScanner();
   }
 }
