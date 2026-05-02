@@ -1,0 +1,24 @@
+{
+  "name": "Aura Foods",
+  "short_name": "Aura Foods",
+  "description": "Gestisci la tua dispensa con Aura Foods",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e8f5e9",
+  "theme_color": "#1a5c3a",
+  "icons": [
+    {
+      "src": "img/image.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "img/image.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
