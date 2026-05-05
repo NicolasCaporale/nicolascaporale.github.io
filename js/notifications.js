@@ -46,12 +46,22 @@ async function removeNotifications(supabase, userId) {
   }
 }
 
+async function getSWReg() {
+  // Prova prima getRegistration (veloce)
+  const quick = await navigator.serviceWorker.getRegistration('/');
+  if (quick?.active) return quick;
+  // Fallback: aspetta ready con timeout 5s
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
+  ]).catch(() => null);
+}
+
 async function updateNotifUI() {
   const btn   = document.getElementById('notif-toggle-btn');
   const label = document.getElementById('notif-status-label');
   if (!btn || !label) return;
 
-  // Browser non supporta push
   if (!('Notification' in window) || !('PushManager' in window) || !('serviceWorker' in navigator)) {
     label.textContent = 'Non supportate su questo browser';
     btn.textContent   = '—';
@@ -59,7 +69,6 @@ async function updateNotifUI() {
     return;
   }
 
-  // Permesso bloccato esplicitamente dall'utente
   if (Notification.permission === 'denied') {
     label.textContent    = 'Bloccate — abilitale nelle impostazioni';
     btn.textContent      = '🔕 Bloccate';
@@ -68,10 +77,8 @@ async function updateNotifUI() {
     return;
   }
 
-  // Controlla se c'è già un SW registrato e pronto SENZA aspettare
-  const reg = await navigator.serviceWorker.getRegistration('/');
-  if (!reg || !reg.active) {
-    // SW non ancora attivo — mostra stato base senza bloccarsi
+  const reg = await getSWReg();
+  if (!reg) {
     label.textContent    = Notification.permission === 'granted' ? 'Disattivate' : 'Non ancora abilitate';
     btn.textContent      = '🔔 Attiva';
     btn.style.background = '#2d6a4f';
@@ -79,11 +86,8 @@ async function updateNotifUI() {
     return;
   }
 
-  // SW attivo — controlla la subscription
   let sub = null;
-  try {
-    sub = await reg.pushManager.getSubscription();
-  } catch { sub = null; }
+  try { sub = await reg.pushManager.getSubscription(); } catch { sub = null; }
 
   if (sub) {
     label.textContent    = 'Attive ✅';
@@ -98,67 +102,36 @@ async function updateNotifUI() {
 }
 
 async function toggleNotifications() {
-
   const btn = document.getElementById('notif-toggle-btn');
-
   if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
 
   try {
-
     const { data: { user } } = await _supabase.auth.getUser();
+    if (!user) { showToast('Utente non trovato ❌'); await updateNotifUI(); return; }
 
-    if (!user) { showToast('Utente non trovato ❌'); return; }
-
-    const reg = await Promise.race([
-
-      navigator.serviceWorker.ready,
-
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000))
-
-    ]);
+    const reg = await getSWReg();
+    if (!reg) { showToast('Service Worker non pronto ❌'); await updateNotifUI(); return; }
 
     const sub = await reg.pushManager.getSubscription();
 
     if (sub) {
-
-      // Disattiva
-
-      try { await sub.unsubscribe(); } catch(e) { console.warn('unsubscribe fallito:', e); }
-
-      // Rimuove da Supabase comunque, anche se unsubscribe ha fallito
-
+      // DISATTIVA — forza rimozione anche se unsubscribe fallisce
+      let unsubOk = false;
+      try { unsubOk = await sub.unsubscribe(); } catch(e) { console.warn('unsubscribe:', e); }
+      console.log('unsubscribe result:', unsubOk);
+      // Rimuove da Supabase sempre
       await _supabase.from('push_subscriptions').delete().eq('user_id', user.id);
-
       showToast('🔕 Notifiche disattivate');
-
     } else {
-
-      // Attiva
-
+      // ATTIVA
       await initNotifications(_supabase, user.id);
-
       const newSub = await reg.pushManager.getSubscription();
-
-      if (newSub) {
-
-        showToast('🔔 Notifiche attivate!');
-
-      } else {
-
-        showToast('❌ Permesso negato o non supportato');
-
-      }
-
+      showToast(newSub ? '🔔 Notifiche attivate!' : '❌ Permesso negato');
     }
-
   } catch(err) {
-
-    console.error('toggleNotifications errore:', err);
-
-    showToast('❌ Errore notifiche');
-
+    console.error('toggle errore:', err);
+    showToast('❌ ' + err.message);
   }
 
   await updateNotifUI();
-
 }
