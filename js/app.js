@@ -112,6 +112,7 @@ async function doLogin() {
 
   const { data: profile } = await _supabase.from('users').select('*').eq('id', data.user.id).single();
   _currentUser = profile;
+  await initNotifications(_supabase, data.user.id);
   showToast('Bentornato, ' + profile.name + '! 🥑');
   setTimeout(() => goTo('screen-home'), 400);
 }
@@ -140,6 +141,8 @@ async function doRegister() {
 
 async function logout() {
   if (!confirm("Vuoi uscire dall'account?")) return;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) await removeNotifications(supabase, user.id);
   await _supabase.auth.signOut();
   _currentUser    = null;
   _productsCache  = null;  // pulisce la cache al logout
