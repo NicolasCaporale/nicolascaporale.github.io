@@ -53,6 +53,20 @@ function goTo(screenId) {
   }
 }
 
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    const btn = document.getElementById('notif-toggle-btn');
+    if (!btn) return;
+    if (Notification.permission === 'granted') {
+      const reg = await navigator.serviceWorker.getRegistration('/');
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if (!sub) await updateNotifUI();
+    } else {
+      await updateNotifUI();
+    }
+  }
+});
+
 /* ── EMOJI MAP ── */
 const emojiMap = {
   crackers:'🍘',cracker:'🍘',biscotti:'🍪',biscotto:'🍪',
