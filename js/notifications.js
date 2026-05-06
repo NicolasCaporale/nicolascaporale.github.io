@@ -9,15 +9,10 @@ function urlBase64ToUint8Array(base64String) {
 
 async function initNotifications(supabase, userId) {
   if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
-  if (Notification.permission === 'denied') return;
-
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') return;
+  if (Notification.permission !== 'granted') return;
 
   try {
     const reg = await navigator.serviceWorker.ready;
-
-    // Forza sempre una subscription fresca — gestisce il rinnovo Apple
     let subscription = await reg.pushManager.getSubscription();
     if (subscription) await subscription.unsubscribe();
 
@@ -30,7 +25,7 @@ async function initNotifications(supabase, userId) {
       .from('push_subscriptions')
       .upsert({ user_id: userId, subscription: subscription.toJSON() }, { onConflict: 'user_id' });
 
-    console.log('✅ Subscription aggiornata');
+    console.log('✅ Subscription aggiornata al login');
   } catch (err) {
     console.error('Errore push:', err);
   }
@@ -117,18 +112,44 @@ async function toggleNotifications() {
     const sub = await reg.pushManager.getSubscription();
 
     if (sub) {
-      // DISATTIVA — forza rimozione anche se unsubscribe fallisce
-      let unsubOk = false;
-      try { unsubOk = await sub.unsubscribe(); } catch(e) { console.warn('unsubscribe:', e); }
-      console.log('unsubscribe result:', unsubOk);
-      // Rimuove da Supabase sempre
+      // DISATTIVA
+      try { await sub.unsubscribe(); } catch(e) { console.warn('unsubscribe:', e); }
       await _supabase.from('push_subscriptions').delete().eq('user_id', user.id);
       showToast('🔕 Notifiche disattivate');
     } else {
       // ATTIVA
-      await initNotifications(_supabase, user.id);
-      const newSub = await reg.pushManager.getSubscription();
-      showToast(newSub ? '🔔 Notifiche attivate!' : '❌ Permesso negato');
+      // Aspetta 100ms per dare tempo ad Android di aggiornare il permesso
+      await new Promise(r => setTimeout(r, 100));
+      let permission = Notification.permission;
+
+      if (permission === 'default') {
+        permission = await Notification.requestPermission();
+      }
+
+      if (permission !== 'granted') {
+        showToast('❌ Permesso negato — abilitale nelle impostazioni Android');
+        await updateNotifUI();
+        return;
+      }
+
+      try {
+        let subscription = await reg.pushManager.getSubscription();
+        if (subscription) await subscription.unsubscribe();
+
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        });
+
+        await _supabase
+          .from('push_subscriptions')
+          .upsert({ user_id: user.id, subscription: subscription.toJSON() }, { onConflict: 'user_id' });
+
+        showToast('🔔 Notifiche attivate!');
+      } catch(err) {
+        console.error('Errore subscribe:', err);
+        showToast('❌ Errore attivazione: ' + err.message);
+      }
     }
   } catch(err) {
     console.error('toggle errore:', err);
